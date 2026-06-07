@@ -50,11 +50,13 @@ def verify_signature(body: bytes, signature: str) -> bool:
 
 async def reply(reply_token: str, messages: list[dict]):
     async with httpx.AsyncClient() as client:
-        await client.post(
+        res = await client.post(
             LINE_API,
             headers={"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"},
             json={"replyToken": reply_token, "messages": messages},
         )
+        if res.status_code != 200:
+            print(f"[LINE REPLY ERROR] status={res.status_code} body={res.text}", flush=True)
 
 
 async def call_groq(system: str, user: str, max_tokens: int = 500) -> str:
