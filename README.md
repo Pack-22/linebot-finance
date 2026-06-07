@@ -6,8 +6,16 @@
 |--------|-----------|------|
 | LINE Developers | LINE Bot + Webhook | ฟรี |
 | Railway.app | Host Python server | ฟรี $5/เดือน (เกินพอ) |
-| Anthropic API | Claude AI วิเคราะห์ | Pay per use (~฿0.01/ข้อความ) |
+| Groq API | LLaMA 3.1 AI วิเคราะห์ | **ฟรี** (14,400 req/วัน) |
 | GitHub | เก็บ source code | ฟรี |
+
+---
+
+## ขั้นตอนที่ 0: ขอ Groq API Key
+
+1. ไปที่ https://console.groq.com/
+2. Sign up (ฟรี) → ไปที่ **API Keys** → **Create API Key**
+3. จด key ไว้ (ขึ้นต้นด้วย `gsk_...`)
 
 ---
 
@@ -17,22 +25,21 @@
 2. กด **Create a new provider** → ตั้งชื่อ (เช่น "Finance Bot")
 3. กด **Create a new channel** → เลือก **Messaging API**
 4. กรอกข้อมูล:
-   - Channel name: "Finance Bot" (หรือชื่ออะไรก็ได้)
+   - Channel name: "Finance Bot"
    - Channel description: "บันทึกรายรับ-รายจ่าย"
    - Category: Finance
 5. กด **Create**
 6. ไปที่แท็บ **Basic settings** → จด **Channel secret**
-7. ไปที่แท็บ **Messaging API** → ด้านล่างสุด → **Issue** Channel access token → จด token
+7. ไปที่แท็บ **Messaging API** → **Issue** Channel access token → จด token
 
 ---
 
 ## ขั้นตอนที่ 2: Upload code ขึ้น GitHub
 
 ```bash
-# สร้าง repo ใหม่บน github.com ก่อน แล้วรัน:
 git init
 git add .
-git commit -m "init LINE finance bot"
+git commit -m "init LINE finance bot with Groq"
 git remote add origin https://github.com/YOUR_USERNAME/linebot-finance.git
 git push -u origin main
 ```
@@ -44,46 +51,42 @@ git push -u origin main
 1. ไปที่ https://railway.app/ → Sign in with GitHub
 2. กด **New Project** → **Deploy from GitHub repo**
 3. เลือก repo `linebot-finance`
-4. Railway จะ build อัตโนมัติ รอประมาณ 2-3 นาที
+4. รอ build ประมาณ 2-3 นาที
 5. ไปที่ **Settings** → **Networking** → กด **Generate Domain**
-   - จะได้ URL เช่น `https://linebot-finance-production.up.railway.app`
+   - ได้ URL เช่น `https://linebot-finance-production.up.railway.app`
 
 ### ตั้งค่า Environment Variables
 
-ใน Railway → แท็บ **Variables** → เพิ่มตัวแปรเหล่านี้:
+ใน Railway → แท็บ **Variables** → เพิ่ม:
 
 ```
-LINE_CHANNEL_SECRET     = [Channel secret จากขั้นตอนที่ 1]
+LINE_CHANNEL_SECRET       = [Channel secret จากขั้นตอนที่ 1]
 LINE_CHANNEL_ACCESS_TOKEN = [Channel access token จากขั้นตอนที่ 1]
-ANTHROPIC_API_KEY       = [API key จาก console.anthropic.com]
-DB_PATH                 = /data/finance.db
-PORT                    = 8000
+GROQ_API_KEY              = [API key จาก console.groq.com]
+DB_PATH                   = /data/finance.db
+PORT                      = 8000
 ```
 
 ### เพิ่ม Volume สำหรับ Database
 
-ใน Railway → แท็บ **Volumes** → **Add Volume**
-- Mount path: `/data`
+Railway → แท็บ **Volumes** → **Add Volume** → Mount path: `/data`
 
 ---
 
 ## ขั้นตอนที่ 4: ตั้งค่า Webhook บน LINE
 
-1. กลับไป LINE Developers Console
-2. แท็บ **Messaging API**
-3. **Webhook URL** → ใส่: `https://YOUR-DOMAIN.up.railway.app/webhook`
-4. กด **Verify** → ต้องขึ้น "Success"
-5. เปิด **Use webhook** → ON
-6. ปิด **Auto-reply messages** → OFF
-7. ปิด **Greeting messages** → OFF (optional)
+1. กลับไป LINE Developers Console → แท็บ **Messaging API**
+2. **Webhook URL** → ใส่: `https://YOUR-DOMAIN.up.railway.app/webhook`
+3. กด **Verify** → ต้องขึ้น "Success"
+4. เปิด **Use webhook** → ON
+5. ปิด **Auto-reply messages** → OFF
 
 ---
 
 ## ขั้นตอนที่ 5: เพิ่ม Bot เป็นเพื่อน
 
-1. ใน LINE Developers → แท็บ **Messaging API**
-2. ด้านบนจะมี QR Code → สแกนเพิ่มเพื่อน
-3. ทดสอบพิมพ์ "ช่วยเหลือ" → บอทตอบกลับ ✅
+1. ใน LINE Developers → แท็บ **Messaging API** → สแกน QR Code
+2. ทดสอบพิมพ์ "ช่วยเหลือ" → บอทตอบกลับ ✅
 
 ---
 
@@ -107,9 +110,12 @@ PORT                    = 8000
 
 ## ค่าใช้จ่ายโดยประมาณ
 
-- LINE Messaging API: **ฟรี** (200 push msg/วัน, reply ไม่จำกัด)
-- Railway: **ฟรี** $5 credit/เดือน (เกินพอสำหรับใช้คนเดียว)
-- Claude API (Haiku): **~฿0.005-0.02 ต่อข้อความ** (ใช้ 100 ข้อความ/วัน ≈ ฿50/เดือน)
+| รายการ | ค่าใช้จ่าย |
+|--------|-----------|
+| LINE Messaging API | ฟรี (reply ไม่จำกัด) |
+| Railway | ฟรี $5 credit/เดือน |
+| **Groq API (LLaMA 3.1)** | **ฟรี 14,400 req/วัน** |
+| **รวม** | **ฟรี 100%** |
 
 ---
 
@@ -118,7 +124,7 @@ PORT                    = 8000
 ```
 linebot-finance/
 ├── app/
-│   ├── main.py          # FastAPI webhook handler
+│   ├── main.py          # FastAPI webhook + Groq AI
 │   └── db.py            # SQLite database
 ├── requirements.txt
 ├── Dockerfile

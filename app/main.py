@@ -14,10 +14,11 @@ db = Database()
 
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 LINE_API = "https://api.line.me/v2/bot/message/reply"
-CLAUDE_API = "https://api.anthropic.com/v1/messages"
+GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.1-8b-instant"  # เร็ว ฟรี เหมาะกับ chat
 
 HELP_TEXT = """💰 วิธีใช้งาน:
 
@@ -56,37 +57,44 @@ async def reply(reply_token: str, messages: list[dict]):
         )
 
 
-async def call_claude(system: str, user: str, max_tokens: int = 500) -> str:
+async def call_groq(system: str, user: str, max_tokens: int = 500) -> str:
     async with httpx.AsyncClient(timeout=30) as client:
         res = await client.post(
-            CLAUDE_API,
+            GROQ_API,
             headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5-20251001",
+                "model": GROQ_MODEL,
                 "max_tokens": max_tokens,
-                "system": system,
-                "messages": [{"role": "user", "content": user}],
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
             },
         )
         data = res.json()
-        return data["content"][0]["text"].strip()
+        return data["choices"][0]["message"]["content"].strip()
 
 
 async def parse_entry(text: str) -> dict | None:
-    system = """วิเคราะห์ข้อความรายรับ-รายจ่าย ตอบเป็น JSON เท่านั้น ไม่มี markdown
+    system = """วิเคราะห์ข้อความรายรับ-รายจ่าย ตอบเป็น JSON เท่านั้น ไม่มี markdown ไม่มี backtick
 format: {"name":"ชื่อรายการ","amount":จำนวน,"type":"income หรือ expense","cat":"หมวดหมู่"}
 หมวดรายจ่าย: อาหาร, เดินทาง, ช้อปปิ้ง, บิล/สาธารณูปโภค, สุขภาพ, ความงาม, บันเทิง, การศึกษา, อื่นๆ
 หมวดรายรับ: เงินเดือน, ฟรีแลนซ์, โบนัส, ลงทุน, อื่นๆ
 ถ้าไม่ใช่รายรับ-รายจ่าย ตอบ: null"""
     try:
-        raw = await call_claude(system, f'วิเคราะห์: "{text}"', max_tokens=200)
-        if raw.strip().lower() == "null":
+        raw = await call_groq(system, f'วิเคราะห์: "{text}"', max_tokens=200)
+        raw = raw.strip()
+        if raw.lower() == "null":
             return None
-        return json.loads(raw)
+        # กรณี Groq ใส่ ```json ... ``` มา
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        return json.loads(raw.strip())
     except Exception:
         return None
 
@@ -104,7 +112,6 @@ def build_summary(user_id: str, year: int, month: int) -> str:
     expense = sum(e["amount"] for e in entries if e["type"] == "expense")
     balance = income - expense
 
-    # Group by category
     cats: dict[str, float] = {}
     for e in entries:
         if e["type"] == "expense":
@@ -115,7 +122,7 @@ def build_summary(user_id: str, year: int, month: int) -> str:
 
     lines = [
         f"📊 สรุป {months_th[month]} {year + 543}",
-        f"",
+        "",
         f"💚 รายรับ:  {fmt_amount(income)}",
         f"❤️ รายจ่าย: {fmt_amount(expense)}",
         f"{'💛' if balance >= 0 else '🔴'} คงเหลือ:  {fmt_amount(balance)}",
@@ -138,7 +145,7 @@ def build_list(user_id: str, year: int, month: int) -> str:
     months_th = ["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.",
                  "ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
     lines = [f"📋 รายการ {months_th[month]} {year + 543}\n"]
-    for e in entries[-20:]:  # แสดงล่าสุด 20 รายการ
+    for e in entries[-20:]:
         icon = "💚" if e["type"] == "income" else "❤️"
         sign = "+" if e["type"] == "income" else "-"
         lines.append(f"{icon} {e['name']} ({e['cat']})\n   {sign}{fmt_amount(e['amount'])} · {e['date']}")
@@ -150,7 +157,7 @@ def build_list(user_id: str, year: int, month: int) -> str:
 
 @app.get("/")
 async def health():
-    return {"status": "ok", "service": "LINE Finance Bot"}
+    return {"status": "ok", "service": "LINE Finance Bot (Groq)"}
 
 
 @app.post("/webhook")
@@ -171,7 +178,6 @@ async def webhook(request: Request):
         text = event["message"]["text"].strip()
         now = datetime.now()
 
-        # --- คำสั่ง ---
         cmd = text.lower().replace(" ", "")
 
         if cmd in ["ช่วยเหลือ", "help", "เมนู", "menu", "?", "วิธีใช้"]:
@@ -207,7 +213,7 @@ async def webhook(request: Request):
                 if e["type"] == "expense":
                     cats[e["cat"]] = cats.get(e["cat"], 0) + e["amount"]
             cat_str = ", ".join(f"{k}: {int(v)} บาท" for k, v in cats.items())
-            ai_msg = await call_claude(
+            ai_msg = await call_groq(
                 "คุณเป็นที่ปรึกษาการเงินส่วนตัว ภาษาไทย เป็นกันเอง กระชับ ตอบ 4-5 ประโยค",
                 f"รายรับ: {income} บาท, รายจ่าย: {expense} บาท, คงเหลือ: {income-expense} บาท\nหมวดรายจ่าย: {cat_str}\nวิเคราะห์และให้คำแนะนำ",
                 max_tokens=400,
@@ -252,7 +258,7 @@ async def webhook(request: Request):
             entries = db.get_entries(user_id, now.year, now.month)
             income = sum(e["amount"] for e in entries if e["type"] == "income")
             expense = sum(e["amount"] for e in entries if e["type"] == "expense")
-            ai_msg = await call_claude(
+            ai_msg = await call_groq(
                 "คุณเป็นที่ปรึกษาการเงินส่วนตัว ภาษาไทย เป็นกันเอง ตอบกระชับใน LINE",
                 f"ข้อมูลการเงินเดือนนี้: รายรับ {income} บาท, รายจ่าย {expense} บาท\nคำถาม: {text}",
                 max_tokens=300,
